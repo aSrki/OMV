@@ -50,6 +50,19 @@ def sliding_window(features, n_frames, data_len = 12):
 
     return windowed_features
 
+def calculate_angle(p1, vertex, p2, w, h):
+    v1 = np.array([p1.x * w, p1.y * h])
+    v_vertex = np.array([vertex.x * w, vertex.y * h])
+    v2 = np.array([p2.x * w, p2.y * h])
+
+    ba = v1 - v_vertex
+    bc = v2 - v_vertex
+
+    cosine_angle = np.dot(ba, bc) / (np.linalg.norm(ba) * np.linalg.norm(bc) + 1e-6)
+    angle = np.arccos(np.clip(cosine_angle, -1.0, 1.0))
+
+    return np.degrees(angle)
+
 def load_annotations(file_path, fps):
     annotations = []
     with open(file_path, 'r') as f:
@@ -112,8 +125,8 @@ FACE_RIGHT = 454
 features = []
 
 fps = 100
-testing = True 
-data_cnt = 8
+testing = False
+data_cnt = 15
 
 for i in range(110):
     if i > 29 and i < 60:
@@ -147,67 +160,59 @@ for i in range(110):
 
             face_l = face_landmarks.landmark[FACE_LEFT]
             face_r = face_landmarks.landmark[FACE_RIGHT]
+            
             face_width = calculate_distance(face_l, face_r, w, h)
 
-            outer_points = [
-                [face_landmarks.landmark[RIGHT_CORNER_OUTER].x, face_landmarks.landmark[RIGHT_CORNER_OUTER].y],
-                [face_landmarks.landmark[RIGHT_UPPER_OUTER].x, face_landmarks.landmark[RIGHT_UPPER_OUTER].y],
-                [face_landmarks.landmark[TOP_RIGHT_OUTER].x, face_landmarks.landmark[TOP_RIGHT_OUTER].y],
-                [face_landmarks.landmark[TOP_LEFT_OUTER].x, face_landmarks.landmark[TOP_LEFT_OUTER].y],
-                [face_landmarks.landmark[LEFT_UPPER_OUTER].x, face_landmarks.landmark[LEFT_UPPER_OUTER].y],
-                [face_landmarks.landmark[LEFT_CORENER_OUTER].x, face_landmarks.landmark[LEFT_CORENER_OUTER].y],
-                [face_landmarks.landmark[LEFT_LOWER_OUTER].x, face_landmarks.landmark[LEFT_LOWER_OUTER].y],
-                [face_landmarks.landmark[LOW_LEFT_OUTER].x, face_landmarks.landmark[LOW_LEFT_OUTER].y],
-                [face_landmarks.landmark[LOW_RIGHT_OUTER].x, face_landmarks.landmark[LOW_RIGHT_OUTER].y],
-                [face_landmarks.landmark[RIGHT_LOWER_OUTER].x, face_landmarks.landmark[RIGHT_LOWER_OUTER].y]
+            outer_points_raw = [
+            face_landmarks.landmark[RIGHT_CORNER_OUTER], face_landmarks.landmark[RIGHT_UPPER_OUTER],
+            face_landmarks.landmark[TOP_RIGHT_OUTER], face_landmarks.landmark[TOP_LEFT_OUTER],
+            face_landmarks.landmark[LEFT_UPPER_OUTER], face_landmarks.landmark[LEFT_CORENER_OUTER],
+            face_landmarks.landmark[LEFT_LOWER_OUTER], face_landmarks.landmark[LOW_LEFT_OUTER],
+            face_landmarks.landmark[LOW_RIGHT_OUTER], face_landmarks.landmark[RIGHT_LOWER_OUTER]
             ]
 
-            inner_points = [
-                [face_landmarks.landmark[RIGHT_CORNER_INNER].x, face_landmarks.landmark[RIGHT_CORNER_INNER].y],
-                [face_landmarks.landmark[RIGHT_UPPER_INNER].x, face_landmarks.landmark[RIGHT_UPPER_INNER].y],
-                [face_landmarks.landmark[TOP_RIGHT_INNER].x, face_landmarks.landmark[TOP_RIGHT_INNER].y],
-                [face_landmarks.landmark[TOP_LEFT_INNER].x, face_landmarks.landmark[TOP_LEFT_INNER].y],
-                [face_landmarks.landmark[LEFT_UPPER_INNER].x, face_landmarks.landmark[LEFT_UPPER_INNER].y],
-                [face_landmarks.landmark[LEFT_CORENER_INNER].x, face_landmarks.landmark[LEFT_CORENER_INNER].y],
-                [face_landmarks.landmark[LEFT_LOWER_INNER].x, face_landmarks.landmark[LEFT_LOWER_INNER].y],
-                [face_landmarks.landmark[LOW_LEFT_INNER].x, face_landmarks.landmark[LOW_LEFT_INNER].y],
-                [face_landmarks.landmark[LOW_RIGHT_INNER].x, face_landmarks.landmark[LOW_RIGHT_INNER].y],
-                [face_landmarks.landmark[RIGHT_LOWER_INNER].x, face_landmarks.landmark[RIGHT_LOWER_INNER].y]
-            ]
+            cx = sum(p.x for p in outer_points_raw) / 10.0
+            cy = sum(p.y for p in outer_points_raw) / 10.0
 
-            outer_area = ConvexHull(outer_points)
-            inner_area = ConvexHull(inner_points)
+            shape_features = []
+            for p in outer_points_raw:
+                dist = np.linalg.norm(np.array([p.x * w, p.y * h]) - np.array([cx * w, cy * h]))
+                shape_features.append(dist / face_width)
 
-            # face_l = face_landmarks.landmark[FACE_LEFT]
-            # face_r = face_landmarks.landmark[FACE_RIGHT]
+            outer_coords = np.array([[p.x, p.y] for p in outer_points_raw])
+            outer_hull = ConvexHull(outer_coords)
 
-            upper_lip_inner = face_landmarks.landmark[UPPER_LIP_INNER]
-            lower_lip_inner = face_landmarks.landmark[LOWER_LIP_INNER]
+            opening_vertical = calculate_distance(face_landmarks.landmark[UPPER_LIP_INNER], 
+                                          face_landmarks.landmark[LOWER_LIP_INNER], w, h)
+            opening_horizontal = calculate_distance(face_landmarks.landmark[LEFT_CORENER_INNER], face_landmarks.landmark[RIGHT_CORNER_INNER], w, h)
 
-            left_inner = face_landmarks.landmark[LEFT_CORENER_INNER]
-            right_inner = face_landmarks.landmark[RIGHT_CORNER_INNER]
+            mar = opening_vertical / (opening_horizontal + 1e-6)
 
-            # face_width = calculate_distance(face_l, face_r, w, h)
-            opening_vertical = calculate_distance(upper_lip_inner, lower_lip_inner, w, h)
-            opening_horizontal = calculate_distance(left_inner, right_inner, w, h)
-            # l1 = calculate_distance(righ_corner, right_upper, w, h)/face_width
-            # l2 = calculate_distance(right_upper, top_right, w, h)/face_width
-            # l3 = calculate_distance(top_right, top_left, w, h)/face_width
-            # l4 = calculate_distance(top_left, left_upper, w, h)/face_width
-            # l5 = calculate_distance(left_upper, left_corner, w, h)/face_width
-            # l6 = calculate_distance(left_corner, left_lower, w, h)/face_width
-            # l7 = calculate_distance(left_lower, low_left, w, h)/face_width
-            # l8 = calculate_distance(low_left, low_right, w, h)/face_width
-            # l9 = calculate_distance(low_right, right_lower, w, h)/face_width
-            # l10 = calculate_distance(right_lower, righ_corner, w, h)/face_width
+            angle_l = calculate_angle(
+                face_landmarks.landmark[TOP_LEFT_OUTER],
+                face_landmarks.landmark[LEFT_CORENER_OUTER],
+                face_landmarks.landmark[LOW_LEFT_OUTER],
+                w, h
+            )
 
+            angle_r = calculate_angle(
+                face_landmarks.landmark[TOP_RIGHT_OUTER],
+                face_landmarks.landmark[RIGHT_CORNER_OUTER],
+                face_landmarks.landmark[LOW_RIGHT_OUTER],
+                w, h
+            )
+
+            nose_tip = face_landmarks.landmark[1]
+            chin = face_landmarks.landmark[152]
+
+            jaw_drop = calculate_distance(nose_tip, chin, w, h) / face_width
+
+            current_frame_features = shape_features + [mar, angle_l, angle_r, jaw_drop]
 
             for annotation in annotations:
                 if annotation[1] >= frame_cnt >= annotation[0]:
-                    # features.append([l1, l2, l3, l4, l5, l6, l7, l8, l9, l10, opening, annotation[2]])
-                    features.append([outer_area.volume, outer_area.area, inner_area.volume, inner_area.area, outer_area.volume/inner_area.volume, outer_area.area/inner_area.area, opening_horizontal/opening_vertical, annotation[2]])
+                    features.append(current_frame_features +  [annotation[2]])
             frame_cnt += 1                
-
 
 for i in [1,3,5,7]:
 
